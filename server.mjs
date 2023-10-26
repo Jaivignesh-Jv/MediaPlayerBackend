@@ -9,15 +9,11 @@ import dotenv from "dotenv";
 import multer from "multer";
 import path from "path";
 import * as fs from "fs";
+import * as fss from "fs-extra"
 dotenv.config();
 import { Downloader } from 'ytdl-mp3';
 import YouTube from "youtube-sr";
 
-
-const downloader = new Downloader({
-  outputDir: "./assets",
-  getTags: true,
-});
 
 
 const app = express();
@@ -26,7 +22,6 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
-
 
 
 import { v2 as cloudinary } from "cloudinary";
@@ -225,10 +220,8 @@ app.post("/api/searchupload", async (req, res) => {
     getTags: true,
 });
 await downloader.downloadSong(videos[0].url);
+});
 
-
-
-})
 
 app.post("/api/searchforsongs", async (req, res) => {
   const {search} = req.body;
@@ -237,7 +230,19 @@ app.post("/api/searchforsongs", async (req, res) => {
   res.status(200).json(videos);
 });
 
+
 app.post("/api/searchsongupload", async (req, res) => {
+  
+  const new_folder = uuidv4();
+  const downloader = new Downloader({
+    outputDir: `./assets/${new_folder}`,
+    getTags: true,
+  });
+
+  fs.mkdir(`./assets/${new_folder}`, { recursive: true }, (err) => {
+    if (err) throw err;
+    console.log('Directory created successfully!');
+  });
   const {url} = req.body;
   const user = req.query.user;
   (async () => {
@@ -245,24 +250,16 @@ app.post("/api/searchsongupload", async (req, res) => {
       let filepath_search = "";
       try {
          filepath_search = await downloader.downloadSong(url);
-        // rest of the code
       } catch (error) {
         console.error(error.message);
-        fs.readdir("assets", (err, files) => {
-          if (err) throw err;
-          for (const file of files) {
-            fs.unlink(path.join("assets", file), (err) => {
-              if (err) throw err;
-            });
-          }
-        });
+        fss.remove(`./assets/${new_folder}`);
       }
       const metadata = await parseFile(filepath_search);
       const pictureData = metadata.common.picture[0].data;
       const pictureFileName = uuidv4() + ".jpg";
-      const pictureFilePath = "./assets/" + pictureFileName;
+      const pictureFilePath = `./assets/${new_folder}/` + pictureFileName;
 
-      fs.writeFileSync("./assets/" + pictureFileName, pictureData);
+      fs.writeFileSync(`./assets/${new_folder}/`+ pictureFileName, pictureData);
 
       let cloudpicture;
       let cloudsong;
@@ -271,15 +268,14 @@ app.post("/api/searchsongupload", async (req, res) => {
         pictureFilePath,
         { resource_type: "image", public_id: pictureFileName },
         function (error, result) {
-          const cloudpicture = result.secure_url;
+          const cloudpicture = result.url;
           
           cloudinary.uploader.upload(
             filepath_search,
             { resource_type: "auto", public_id: path.basename(filepath_search) },
             function (error, result) {
-              
-              const cloudsong = result.secure_url;
-
+              console.log(result.data)
+              const cloudsong = result.url;
               const filter = { user: user };
               const song = {
                 title: metadata.common.title,
@@ -295,25 +291,29 @@ app.post("/api/searchsongupload", async (req, res) => {
                 { new: true }
               )
                 .then(() => {
-                  fs.unlinkSync(filepath_search);
-                  fs.unlinkSync(pictureFilePath);
+                  fss.remove(`./assets/${new_folder}`);
                 })
                 .catch((err) => {
                   console.log(err);
-                  fs.unlinkSync(filepath_search);
+                  fss.remove(`./assets/${new_folder}`);
                 });
             }
           );
         }
       );
+      
       res.status(201).json({ message: "File uploaded successfully" });
     } catch (error) {
       console.error(error.message);
+      fss.remove(`./assets/${new_folder}`);
       res.status(500).send("Can't get data! Try again");
+
     }
   })();
   
 });
+
+
 
 app.listen(PORT, () => {
   //gidyai
